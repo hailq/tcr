@@ -63,7 +63,7 @@ contract Registry {
     @dev Contructor         Sets the addresses for token, voting, and parameterizer
     @param _tokenAddr       Address of the TCR's intrinsic ERC20 token
     @param _plcrAddr        Address of a PLCR voting contract for the provided token
-    @param _paramsAddr      Address of a Parameterizer contract 
+    @param _paramsAddr      Address of a Parameterizer contract
     */
     function Registry(
         address _tokenAddr,
@@ -89,6 +89,11 @@ contract Registry {
     @param _data        Extra data relevant to the application. Think IPFS hashes.
     */
     function apply(bytes32 _listingHash, uint _amount, string _data) external {
+
+        /* Allow registry to use the token */
+        address sender = msg.sender;
+        require(token.approve(this, _amount));
+
         require(!isWhitelisted(_listingHash));
         require(!appWasMade(_listingHash));
         require(_amount >= parameterizer.get("minDeposit"));
@@ -172,8 +177,12 @@ contract Registry {
     @param _data        Extra data relevant to the challenge. Think IPFS hashes.
     */
     function challenge(bytes32 _listingHash, string _data) external returns (uint challengeID) {
+
         Listing storage listing = listings[_listingHash];
         uint deposit = parameterizer.get("minDeposit");
+
+        /* Allow registry to use the token */
+        require(token.approve(this, deposit));
 
         // Listing must be in apply stage or already on the whitelist
         require(appWasMade(_listingHash) || listing.whitelisted);
@@ -436,7 +445,7 @@ contract Registry {
         address owner = listing.owner;
         uint unstakedDeposit = listing.unstakedDeposit;
         delete listings[_listingHash];
-        
+
         // Transfers any remaining balance back to the owner
         if (unstakedDeposit > 0){
             require(token.transfer(owner, unstakedDeposit));

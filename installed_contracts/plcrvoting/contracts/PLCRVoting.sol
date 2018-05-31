@@ -111,6 +111,15 @@ contract PLCRVoting {
     // VOTING INTERFACE:
     // =================
 
+    // Improve UX by allowing to setup voting rights right at the committing time
+    function setupVotingRights(address _sender, uint _numTokens) internal returns (bool result) {
+        require(token.balanceOf(_sender) >= _numTokens);
+        voteTokenBalance[_sender] += _numTokens;
+        require(token.transferFrom(_sender, this, _numTokens));
+
+        return true;
+    }
+
     /**
     @notice Commits vote using hash of choice and secret salt to conceal vote until reveal
     @param _pollID Integer identifier associated with target poll
@@ -119,6 +128,12 @@ contract PLCRVoting {
     @param _prevPollID The ID of the poll that the user has voted the maximum number of tokens in which is still less than or equal to numTokens
     */
     function commitVote(uint _pollID, bytes32 _secretHash, uint _numTokens, uint _prevPollID) external {
+
+        /* Allow registry to use the token */
+        require(token.approve(this, _numTokens));
+
+        require(setupVotingRights(msg.sender, _numTokens));
+
         require(commitPeriodActive(_pollID));
         require(voteTokenBalance[msg.sender] >= _numTokens); // prevent user from overspending
         require(_pollID != 0);                // prevent user from committing to zero node placeholder
@@ -396,7 +411,7 @@ contract PLCRVoting {
             nodeID = dllMap[_voter].getPrev(nodeID);
           }
           // Return the insert point
-          return nodeID; 
+          return nodeID;
         }
         // We did not find the insert point. Continue iterating backwards through the list
         nodeID = dllMap[_voter].getPrev(nodeID);

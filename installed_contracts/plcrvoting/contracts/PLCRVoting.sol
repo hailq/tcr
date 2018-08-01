@@ -37,6 +37,7 @@ contract PLCRVoting {
         uint votesAgainst;      /// tally of votes countering proposal
         mapping(address => bool) didCommit;  /// indicates whether an address committed a vote for this poll
         mapping(address => bool) didReveal;   /// indicates whether an address revealed a vote for this poll
+        mapping(address => bytes) encryptedInfo;    /// the encrypted vote information of the voter used to reveal
     }
 
     // ============
@@ -111,29 +112,15 @@ contract PLCRVoting {
     // VOTING INTERFACE:
     // =================
 
-    // Improve UX by allowing to setup voting rights right at the committing time
-    function setupVotingRights(address _sender, uint _numTokens) internal returns (bool result) {
-        require(token.balanceOf(_sender) >= _numTokens);
-        voteTokenBalance[_sender] += _numTokens;
-        require(token.transferFrom(_sender, this, _numTokens));
-
-        return true;
-    }
-
     /**
     @notice Commits vote using hash of choice and secret salt to conceal vote until reveal
     @param _pollID Integer identifier associated with target poll
     @param _secretHash Commit keccak256 hash of voter's choice and salt (tightly packed in this order)
     @param _numTokens The number of tokens to be committed towards the target poll
     @param _prevPollID The ID of the poll that the user has voted the maximum number of tokens in which is still less than or equal to numTokens
+    @param _encryptedInfo The encrypted information used for reveal the vote later
     */
-    function commitVote(uint _pollID, bytes32 _secretHash, uint _numTokens, uint _prevPollID) external {
-
-        /* Allow registry to use the token */
-        require(token.approve(this, _numTokens));
-
-        require(setupVotingRights(msg.sender, _numTokens));
-
+    function commitVote(uint _pollID, bytes32 _secretHash, uint _numTokens, uint _prevPollID, bytes _encryptedInfo) external {
         require(commitPeriodActive(_pollID));
         require(voteTokenBalance[msg.sender] >= _numTokens); // prevent user from overspending
         require(_pollID != 0);                // prevent user from committing to zero node placeholder
@@ -155,6 +142,8 @@ contract PLCRVoting {
         store.setAttribute(UUID, "commitHash", uint(_secretHash));
 
         pollMap[_pollID].didCommit[msg.sender] = true;
+        pollMap[_pollID].encryptedInfo[msg.sender] = _encryptedInfo;
+
         _VoteCommitted(_pollID, _numTokens, msg.sender);
     }
 
@@ -171,6 +160,14 @@ contract PLCRVoting {
         // if next is zero node, _numTokens does not need to be greater
         bool nextValid = (_numTokens <= getNumTokens(_voter, _nextID) || _nextID == 0);
         return prevValid && nextValid;
+    }
+
+    /**
+    @notice The encrypted information includes the vote option and the secret salt, which is used to reveal the vote
+    @param _pollID Integer identiier associated with target poll
+     */
+    function getRevealInfo(uint _pollID) public view returns(bytes) {
+        return pollMap[_pollID].encryptedInfo[msg.sender];
     }
 
     /**
@@ -411,7 +408,7 @@ contract PLCRVoting {
             nodeID = dllMap[_voter].getPrev(nodeID);
           }
           // Return the insert point
-          return nodeID;
+          return nodeID; 
         }
         // We did not find the insert point. Continue iterating backwards through the list
         nodeID = dllMap[_voter].getPrev(nodeID);

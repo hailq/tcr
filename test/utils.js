@@ -13,6 +13,7 @@ const ethQuery = new Eth(new HttpProvider('http://localhost:7545'));
 const PLCRVoting = artifacts.require('PLCRVoting.sol');
 const Parameterizer = artifacts.require('Parameterizer.sol');
 const Registry = artifacts.require('Registry.sol');
+const SingleRegistry = artifacts.require('SingleRegistry.sol');
 const Token = artifacts.require('EIP20.sol');
 
 const config = JSON.parse(fs.readFileSync('./conf/config.json'));
@@ -65,6 +66,13 @@ const utils = {
     await utils.as(actor, registry.updateStatus, domain);
   },
 
+  addToSubjectWhitelist: async (domain, subject, deposit, actor) => {
+    const registry = await SingleRegistry.deployed();
+    await utils.as(actor, registry.apply, domain, subject, deposit, '');
+    await utils.increaseTime(paramConfig.applyStageLength + 1);
+    await utils.as(actor, registry.updateStatus, domain);
+  },
+
   as: (actor, fn, ...args) => {
     function detectSendObject(potentialSendObj) {
       function hasOwnProperty(obj, prop) {
@@ -110,6 +118,12 @@ const utils = {
   challengeAndGetPollID: async (domain, actor) => {
     const registry = await Registry.deployed();
     const receipt = await utils.as(actor, registry.challenge, domain, '');
+    return receipt.logs[0].args.challengeID;
+  },
+
+  challengeSubjectAndGetPollID: async (domain, subject, actor) => {
+    const registry = await SingleRegistry.deployed();
+    const receipt = await utils.as(actor, registry.challengeSubject, domain, subject, '');
     return receipt.logs[0].args.challengeID;
   },
 

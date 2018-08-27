@@ -48,7 +48,7 @@ contract SingleRegistry {
         address owner;          // Owner of Listing
         uint unstakedDeposit;   // Number of tokens in the listing not locked in a challenge
         uint challengeID;       // Corresponds to a PollID in PLCRVoting
-
+        bytes32 subject;        // Applying subject
 
         mapping (bytes32 => Subject) subjects;  // Maps subjectHashes to associated subject data
     }
@@ -141,9 +141,13 @@ contract SingleRegistry {
         // TODO: Check number of deposit tokens
         require(_amount >= parameterizer.get("minDeposit"), "Number of depoisits is not enough");
 
+        require(!appWasMade(_listingHash) && !subjectAppWasMade(_listingHash, _subjectHash), "This application was made");
+
+
         // TODO: Sets owner
         Listing storage listing = listings[_listingHash];
         listing.owner = sender;
+        listing.subject = _subjectHash;
 
         // TODO: Sets apply stage end time
         listing.subjects[_subjectHash].subjectExpiry = block.timestamp.add(parameterizer.get("applyStageLen"));
@@ -302,7 +306,9 @@ contract SingleRegistry {
         require(token.approve(this, deposit), "Couldn't approve token to this registry");
 
         // TODO: Listing must be in apply stage or already on the whitelist
-        require(subjectAppWasMade(_listingHash, _subjectHash) || listing.subjects[_subjectHash].subjectWhitelisted, "This application is not ready to be challenge");
+        require(
+            subjectAppWasMade(_listingHash, _subjectHash) || listing.subjects[_subjectHash].subjectWhitelisted, "This application is not ready to be challenge"
+            );
 
         // Prevent multiple challenges
         require(listing.challengeID == 0 || challenges[listing.challengeID].resolved, "This application is in the middle of another challenge");
@@ -355,9 +361,9 @@ contract SingleRegistry {
     */
     function updateStatus(bytes32 _listingHash) public {
         uint challengeID = listings[_listingHash].challengeID;
-        bytes32 subjectHash = challenges[challengeID].subject;
+        bytes32 subjectHash = challenges[challengeID].subject != 0x0 ? challenges[challengeID].subject : listings[_listingHash].subject;
 
-        if (canSubjectBeWhitelisted(_listingHash)) {
+        if (canSubjectBeWhitelisted(_listingHash, subjectHash)) {
             whitelistSubject(_listingHash, subjectHash);
             whitelistApplication(_listingHash);
         } else if (challengeCanBeResolved(_listingHash)) {
@@ -367,6 +373,12 @@ contract SingleRegistry {
         }
     }
 
+    // ----------------
+    // TOKEN FUNCTIONS:
+    // ----------------
+
+    // TODO: Implement functions for token here
+
     //
     // GETTERS
     //
@@ -375,27 +387,27 @@ contract SingleRegistry {
     @dev                Determines whether the given listingHash be whitelisted.
     @param _listingHash The listingHash whose status is to be examined
     */
-    function canSubjectBeWhitelisted(bytes32 _listingHash) view public returns (bool) {
+    function canSubjectBeWhitelisted(bytes32 _listingHash, bytes32 _subjectHash) view public returns (bool) {
         uint challengeID = listings[_listingHash].challengeID;
-        
-        if (challenges[challengeID].isSubject == false) {
-            return false;
-        }
 
-        bytes32 subjectHash = challenges[challengeID].subject;
+        bool wasMade = subjectAppWasMade(_listingHash, _subjectHash);
+        bool isEnded = (listings[_listingHash].subjects[_subjectHash].subjectExpiry < now);
+        bool whitelisted = isSubjectWhitelisted(_listingHash, _subjectHash);
+        bool doneChallenged = (challengeID == 0 || challenges[challengeID].resolved == true);
 
         // Ensures that the application was made,
         // the application period has ended,
         // the listingHash can be whitelisted,
         // and either: the challengeID == 0, or the challenge has been resolved.
+        
         if (
-            subjectAppWasMade(_listingHash, subjectHash)
+            wasMade
             &&
-            listings[_listingHash].subjects[subjectHash].subjectExpiry < now
+            isEnded
             &&
-            !isSubjectWhitelisted(_listingHash, subjectHash)
+            !whitelisted
             &&
-            (challengeID == 0 || challenges[challengeID].resolved == true)
+            doneChallenged
         ) {
             return true;
         }
@@ -421,7 +433,9 @@ contract SingleRegistry {
     function challengeCanBeResolved(bytes32 _listingHash) view public returns (bool) {
         uint challengeID = listings[_listingHash].challengeID;
 
-        require(challengeExists(_listingHash));
+        if (!challengeExists(_listingHash)) {
+            return false;
+        }
 
         return voting.pollEnded(challengeID);
     }
@@ -485,6 +499,18 @@ contract SingleRegistry {
         return (2 * challenges[_challengeID].stake) - challenges[_challengeID].rewardPool;
     }
 
+    /**
+    @dev                    Getter for Listing subejcts mappings
+    @param _listingHash     The hash of the listing
+    @param _subjectHash     The hash of the subject
+    */
+    function listingSubjects(bytes32 _listingHash, bytes32 _subjectHash) public view returns(uint, bool, uint) {
+        return (
+            listings[_listingHash].subjects[_subjectHash].subjectExpiry,
+            listings[_listingHash].subjects[_subjectHash].subjectWhitelisted,
+            listings[_listingHash].subjects[_subjectHash].subjectUnstakedDeposit
+        );
+    }
 
     //
     // PRIVATE FUNCTIONS
